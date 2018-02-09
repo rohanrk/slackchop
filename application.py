@@ -2,13 +2,22 @@ import json
 import random
 import re
 import requests
+from itertools import islice
 
-from credentials import client_id, client_secret, oauth_token, oauth_scope
+import praw
+# from credentials import client_id, client_secret, oauth_token, oauth_scope
+from credentials import *
 from datetime import datetime, timedelta
 from flask import Flask, request, make_response, render_template
 from slackclient import SlackClient
 
 sc = SlackClient(oauth_token)
+reddit = praw.Reddit(client_id=reddit_client_id, client_secret=reddit_client_secret, user_agent='Slackchop')
+
+# this is an infinite random bit generator. shitty but it works
+randbits = iter(lambda: random.getrandbits(1), 2)
+def randstream(i):
+    return iter(lambda: random.randrange(i), i)
 
 # currently can't get this from an online list because slack doesn't return
 # a list of default emoji they support and provide no way of checking if they
@@ -65,6 +74,49 @@ def handle_message(slack_event, message):
         reply = ':{}:'.format('::'.join(es))
         send_message(channel=channel, text=reply)
         return
+
+    if message.startswith('!randmojify'):
+        words = message.split(' ')[1:]
+        pattern = ':{}:'
+        if words[0].startswith('`') and words[0].endswith('`'):
+            pattern = words[0][1:-1]
+            words = words[1:]
+        if len(words) == 1:
+            words = words[0]
+        ems = list(map(lambda x: pattern.format(x), words))
+        send_message(channel=channel, text=''.join(ems))
+        return
+
+    take = lambda x: not x.stickied and not x.is_self
+    match = re.match(r'!randfeld\s+(.*)', message)
+    if match:
+        sub = choose(filter(take, reddit.subreddit('seinfeldgifs').search(match[1]+' self:no')), 50)
+        send_message(channel=channel, text=sub.url, unfurl_links=True, unfurl_media=True, icon_emoji=':jerry:')
+        return
+    if message.startswith('!randfeld'):
+        sub = choose(filter(take, reddit.subreddit('seinfeldgifs').hot(limit=50)))
+        send_message(channel=channel, text=sub.url, unfurl_links=True, unfurl_media=True, icon_emoji=':jerry:')
+        return
+
+    if message.startswith('!gridtext '):
+        text = message.split(' ', 1)[1]
+        if len(text) > 80: text = text[:80]
+        res = []
+        n = len(text)
+        for i in range(n):
+            res.append(' '.join(text))
+            text = text[-1] + text[:-1]
+        reply = '```{}```'.format('\n'.join(res))
+        send_message(channel=channel, text=reply)
+        return
+
+def choose(seq, limit=None):
+    if limit: seq = islice(seq, limit)
+    ret = None
+    for item, take in zip(seq, randstream(5)):
+        if not ret: ret = item
+        if not take: return item
+    return ret
 
 def event_handler(event_type, slack_event):
     if event_type == 'reaction_added':
