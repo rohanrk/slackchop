@@ -5,14 +5,15 @@ import requests
 from itertools import islice
 
 import praw
-# from credentials import client_id, client_secret, oauth_token, oauth_scope
 from credentials import *
 from datetime import datetime, timedelta
 from flask import Flask, request, make_response, render_template
 from slackclient import SlackClient
 
 sc = SlackClient(oauth_token)
-reddit = praw.Reddit(client_id=reddit_client_id, client_secret=reddit_client_secret, user_agent='Slackchop')
+reddit = praw.Reddit(client_id=reddit_client_id, 
+    client_secret=reddit_client_secret,
+    user_agent='Slackchop')
 
 # this is an infinite random bit generator. shitty but it works
 randbits = iter(lambda: random.getrandbits(1), 2)
@@ -29,6 +30,10 @@ last_update = datetime.min
 update_frequency = timedelta(0, 3600) # update every hour
 youtube_url = 'https://www.youtube.com'
 youtube_vid_regex = '/watch\?v=[^"]+'
+google_search_base = 'https://www.google.com/search'
+fake_mobile_agent = '''Mozilla/5.0 (iPhone; U; CPU iPhone OS 4_0 like Mac OS X;
+ en-us) AppleWebKit/532.9 (KHTML, like Gecko) Versio  n/4.0.5 Mobile/8A293 Safa
+ri/6531.22.7'''
 
 application = Flask(__name__)
 
@@ -49,25 +54,57 @@ def handle_message(slack_event, message):
     channel = slack_event['event']['channel']
     match = re.match(r'!youtube\s+(.+)', message)
     if match:
-        res = requests.get(youtube_url + '/results', params={'search_query':match[1]})
+        res = requests.get(youtube_url + '/results',
+            params={'search_query':match[1]})
         vids = re.findall(youtube_vid_regex, res.text)
         send_message(channel=channel, text=youtube_url+vids[0])
         return
 
+    match = re.match(r'!(gif|image)\s+(.+)', message)
+    if match:
+        t, q = match[1], match[2]
+        params = {'tbm':'isch', 'q':q, 'safe':''}
+        if t == 'gif': params['tbs'] = 'itp:animated'
+        response = requests.get(google_search_base,
+            params=params, headers={"User-agent": fake_mobile_agent})
+        links = re.findall(r'imgurl\\x3d([^\\]+)\\', response.text)
+        send_message(channel=channel, text=random.choice(links),
+            unfurl_links=True, unfurl_media=True)
+
+    match = re.match(r'!roll\s+(\d*|an?)\s*[dD]\s*(\d+)', message)
+    if match:
+        n, d = match[1], match[2]
+        n = 1 if 'a' in n else int(n)
+        d = int(d)
+        reply = ', '.join([str(random.randrange(d)+1) for i in range(n)])
+        send_message(channel=channel, text=reply);
+        return
+    if message.rstrip() == '!flip':
+        reply = 'heads' if random.getrandbits(1) else 'tails'
+        send_message(channel=channel, text=reply);
+        return
+    match = re.match(r'!(?:shuffle|flip)\s+(.+)', message)
+    if match:
+        items = list(map(lambda x:x.strip(), match[1].split(',')))
+        random.shuffle(items)
+        reply = ', '.join(items)
+        send_message(channel=channel, text=reply);
+        return
+
     update_emoji_list()
 
-    match = re.match(r'!randmoji\s+(\d+)\s*', message)
+    match = re.match(r'!emoji\s+(\d+)\s*', message)
     if match:
         num = int(match[1])
         if num == 0: return
         reply = ':{}:'.format('::'.join(random.choices(emojis, k=num)))
         send_message(channel=channel, text=reply)
         return
-    match = re.match(r'!randmoji\s+(:[^:]+:)(?:[\*xX\s])?(\d+)', message)
+    match = re.match(r'!emoji\s+(:[^:]+:)(?:[\*xX\s])?(\d+)', message)
     if match and int(match[2]) > 0 and match[1][1:-1] in emojis:
         send_message(channel=channel, text=match[1]*int(match[2]))
         return
-    match = re.match(r'!randmoji\s+(\S+)\s*', message)
+    match = re.match(r'!emoji\s+(\S+)\s*', message)
     if match:
         es = [x for x in emojis if re.search(match[1], x)][:350]
         if len(es) == 0: return
@@ -75,7 +112,7 @@ def handle_message(slack_event, message):
         send_message(channel=channel, text=reply)
         return
 
-    if message.startswith('!randmojify'):
+    if message.startswith('!emojify'):
         words = message.split(' ')[1:]
         pattern = ':{}:'
         if words[0].startswith('`') and words[0].endswith('`'):
@@ -90,12 +127,16 @@ def handle_message(slack_event, message):
     take = lambda x: not x.stickied and not x.is_self
     match = re.match(r'!randfeld\s+(.*)', message)
     if match:
-        sub = choose(filter(take, reddit.subreddit('seinfeldgifs').search(match[1]+' self:no')), 50)
-        send_message(channel=channel, text=sub.url, unfurl_links=True, unfurl_media=True, icon_emoji=':jerry:')
+        sub = choose(filter(take,
+            reddit.subreddit('seinfeldgifs').search(match[1]+' self:no')), 50)
+        send_message(channel=channel, text=sub.url,
+            unfurl_links=True, unfurl_media=True, icon_emoji=':jerry:')
         return
     if message.startswith('!randfeld'):
-        sub = choose(filter(take, reddit.subreddit('seinfeldgifs').hot(limit=50)))
-        send_message(channel=channel, text=sub.url, unfurl_links=True, unfurl_media=True, icon_emoji=':jerry:')
+        sub = choose(filter(take,
+            reddit.subreddit('seinfeldgifs').hot(limit=50)))
+        send_message(channel=channel, text=sub.url,
+            unfurl_links=True, unfurl_media=True, icon_emoji=':jerry:')
         return
 
     if message.startswith('!gridtext '):
@@ -130,7 +171,8 @@ def event_handler(event_type, slack_event):
 def hears():
     slack_event = json.loads(request.data)
     if "challenge" in slack_event:
-        return make_response(slack_event["challenge"], 200, {"content_type": "application/json"})
+        return make_response(slack_event["challenge"],
+            200, {"content_type": "application/json"})
     if "event" in slack_event:
         event_type = slack_event["event"]["type"]
         return event_handler(event_type, slack_event)
