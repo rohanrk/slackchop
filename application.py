@@ -26,6 +26,7 @@ def randstream(i):
 default_emojis = open('emoji_names.txt').read().splitlines()
 custom_emojis = []
 emojis = []
+test_channels = ['C92MYAT7U', 'G09U4DPRQ']
 last_update = datetime.min
 update_frequency = timedelta(0, 3600) # update every hour
 youtube_url = 'https://www.youtube.com'
@@ -175,7 +176,8 @@ def hears():
             200, {"content_type": "application/json"})
     if "event" in slack_event:
         event_type = slack_event["event"]["type"]
-        return event_handler(event_type, slack_event)
+        if __name__ != '__main__' or slack_event['event']['channel'] in test_channels:
+            return event_handler(event_type, slack_event)
     return make_response("Ok", 200,)
 
 @application.route("/begin_auth", methods=["GET"])
