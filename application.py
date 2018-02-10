@@ -32,9 +32,7 @@ update_frequency = timedelta(0, 3600) # update every hour
 youtube_url = 'https://www.youtube.com'
 youtube_vid_regex = '/watch\?v=[^"]+'
 google_search_base = 'https://www.google.com/search'
-fake_mobile_agent = '''Mozilla/5.0 (iPhone; U; CPU iPhone OS 4_0 like Mac OS X;
- en-us) AppleWebKit/532.9 (KHTML, like Gecko) Versio  n/4.0.5 Mobile/8A293 Safa
-ri/6531.22.7'''
+fake_mobile_agent = '''Mozilla/5.0 (iPhone; U; CPU iPhone OS 4_0 like Mac OS X; en-us) AppleWebKit/532.9 (KHTML, like Gecko) Versio  n/4.0.5 Mobile/8A293 Safari/6531.22.7'''
 
 application = Flask(__name__)
 
@@ -64,6 +62,8 @@ def handle_message(slack_event, message):
     match = re.match(r'!(gif|image)\s+(.+)', message)
     if match:
         t, q = match[1], match[2]
+        #TODO: Normalize messages before passing them to modules
+        q = re.sub(r'<[^\|]*\|([^>]+)>', r'\1', q)
         params = {'tbm':'isch', 'q':q, 'safe':''}
         if t == 'gif': params['tbs'] = 'itp:animated'
         response = requests.get(google_search_base,
