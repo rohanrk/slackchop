@@ -33,6 +33,20 @@ youtube_url = 'https://www.youtube.com'
 youtube_vid_regex = '/watch\?v=[^"]+'
 google_search_base = 'https://www.google.com/search'
 fake_mobile_agent = '''Mozilla/5.0 (iPhone; U; CPU iPhone OS 4_0 like Mac OS X; en-us) AppleWebKit/532.9 (KHTML, like Gecko) Versio  n/4.0.5 Mobile/8A293 Safari/6531.22.7'''
+shake = {'?': 'question',
+         '.': 'period',
+         '~': 'tilde',
+         '+': 'plus',
+         '-': 'minus',
+         '/': 'slash',
+         '=': 'equals',
+         ',': 'comma',
+         '!': 'exclamation',
+         '#': 'octothorpe',
+         '$': 'dollar',
+         '*': 'asterisk'}
+
+
 
 application = Flask(__name__)
 
@@ -45,6 +59,14 @@ def update_emoji_list():
     last_update = now
 
 update_emoji_list()
+
+def truncate_message(message):
+    message = message[:4000]
+    if message.endswith('::'):
+        message = message[:-1]
+    elif not message.endswith(':'):
+        message = message.rsplit(':', 1)[0]
+    return message
 
 def send_message(*args, **kwargs):
     sc.api_call('chat.postMessage', *args, **kwargs)
@@ -99,18 +121,34 @@ def handle_message(slack_event, message):
         num = int(match[1])
         if num == 0: return
         reply = ':{}:'.format('::'.join(random.choices(emojis, k=num)))
-        send_message(channel=channel, text=reply)
+        send_message(channel=channel, text=truncate_message(reply))
         return
     match = re.match(r'!emoji\s+(:[^:]+:)(?:[\*xX\s])?(\d+)', message)
     if match and int(match[2]) > 0 and match[1][1:-1] in emojis:
-        send_message(channel=channel, text=match[1]*int(match[2]))
+        send_message(channel=channel, text=truncate_message(match[1]*int(match[2])))
         return
     match = re.match(r'!emoji\s+(\S+)\s*', message)
     if match:
-        es = [x for x in emojis if re.search(match[1], x)][:350]
+        es = [x for x in emojis if re.search(match[1], x)]
         if len(es) == 0: return
         reply = ':{}:'.format('::'.join(es))
-        send_message(channel=channel, text=reply)
+        send_message(channel=channel, text=truncate_message(reply))
+        return
+
+    match = re.match(r'!shake\s+(\S.*)', message)
+    if match:
+        pattern = 'shake_{}'
+        words = []
+        for word in match[1].split():
+            parts = []
+            for letter in word.lower():
+                if letter.isalnum():
+                    parts.append(pattern.format(letter))
+                elif letter in shake:
+                    parts.append(pattern.format(shake[letter]))
+            words.append(':' + '::'.join(parts) + ':')
+        reply = ':space:'.join(words)
+        send_message(channel=channel, text=truncate_message(reply))
         return
 
     if message.startswith('!emojify'):
