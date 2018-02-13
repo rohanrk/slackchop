@@ -10,6 +10,10 @@ from datetime import datetime, timedelta
 from flask import Flask, request, make_response, render_template
 from slackclient import SlackClient
 
+import youtube
+
+modules = [youtube]
+
 sc = SlackClient(oauth_token)
 reddit = praw.Reddit(client_id=reddit_client_id, 
     client_secret=reddit_client_secret,
@@ -29,8 +33,6 @@ emojis = []
 test_channels = ['C92MYAT7U', 'G09U4DPRQ']
 last_update = datetime.min
 update_frequency = timedelta(0, 3600) # update every hour
-youtube_url = 'https://www.youtube.com'
-youtube_vid_regex = '/watch\?v=[^"]+'
 google_search_base = 'https://www.google.com/search'
 fake_mobile_agent = '''Mozilla/5.0 (iPhone; U; CPU iPhone OS 4_0 like Mac OS X; en-us) AppleWebKit/532.9 (KHTML, like Gecko) Versio  n/4.0.5 Mobile/8A293 Safari/6531.22.7'''
 
@@ -51,26 +53,6 @@ def send_message(*args, **kwargs):
 
 def handle_message(slack_event, message):
     channel = slack_event['event']['channel']
-    match = re.match(r'!youtube\s+(.+)', message)
-    if match:
-        res = requests.get(youtube_url + '/results',
-            params={'search_query':match[1]})
-        vids = re.findall(youtube_vid_regex, res.text)
-        send_message(channel=channel, text=youtube_url+vids[0])
-        return
-
-    match = re.match(r'!(gif|image)\s+(.+)', message)
-    if match:
-        t, q = match[1], match[2]
-        #TODO: Normalize messages before passing them to modules
-        q = re.sub(r'<[^\|]*\|([^>]+)>', r'\1', q)
-        params = {'tbm':'isch', 'q':q, 'safe':''}
-        if t == 'gif': params['tbs'] = 'itp:animated'
-        response = requests.get(google_search_base,
-            params=params, headers={"User-agent": fake_mobile_agent})
-        links = re.findall(r'imgurl\\x3d([^\\]+)\\', response.text)
-        send_message(channel=channel, text=random.choice(links),
-            unfurl_links=True, unfurl_media=True)
 
     match = re.match(r'!roll\s+(\d*|an?)\s*[dD]\s*(\d+)', message)
     if match:
@@ -82,7 +64,7 @@ def handle_message(slack_event, message):
         return
     if message.rstrip() == '!flip':
         reply = 'heads' if random.getrandbits(1) else 'tails'
-        send_message(channel=channel, text=reply);
+        send_message(channel=channel, text=reply)
         return
     match = re.match(r'!(?:shuffle|flip)\s+(.+)', message)
     if match:
@@ -161,11 +143,16 @@ def choose(seq, limit=None):
     return ret
 
 def event_handler(event_type, slack_event):
+    event = slack_event['event']
     if event_type == 'reaction_added':
         user_id = slack_event['event']['user']
-    elif event_type == 'message' and 'text' in slack_event['event']:
-        text = slack_event['event']['text']
-        handle_message(slack_event, text)
+    elif event_type == 'message' and 'text' in event:
+        message = event['text']
+        channel = event['channel']
+        user = event['user'] if 'user' in event else event['bot_id']
+        handle_message(slack_event, message)
+        for module in modules:
+            module.process_message(message, channel, user, slack_event)
     return make_response("Ok", 200, )
 
 @application.route("/events", methods=["GET", "POST"])
@@ -176,8 +163,7 @@ def hears():
             200, {"content_type": "application/json"})
     if "event" in slack_event:
         event_type = slack_event["event"]["type"]
-        if __name__ != '__main__' or slack_event['event']['channel'] in test_channels:
-            return event_handler(event_type, slack_event)
+        return event_handler(event_type, slack_event)
     return make_response("Ok", 200,)
 
 @application.route("/begin_auth", methods=["GET"])
