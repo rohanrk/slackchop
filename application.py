@@ -2,6 +2,7 @@ import json
 import random
 import re
 import requests
+from sys import stderr
 from itertools import islice
 
 import praw
@@ -20,15 +21,9 @@ randbits = iter(lambda: random.getrandbits(1), 2)
 def randstream(i):
     return iter(lambda: random.randrange(i), i)
 
-# currently can't get this from an online list because slack doesn't return
-# a list of default emoji they support and provide no way of checking if they
-# support a particular emoji either
-default_emojis = open('emoji_names.txt').read().splitlines()
-custom_emojis = []
-emojis = []
-test_channels = ['C92MYAT7U', 'G09U4DPRQ']
-last_update = datetime.min
-update_frequency = timedelta(0, 3600) # update every hour
+def p(*args, **kwargs):
+    print(*args, **kwargs, file = stderr)
+
 youtube_url = 'https://www.youtube.com'
 youtube_vid_regex = '/watch\?v=[^"]+'
 google_search_base = 'https://www.google.com/search'
@@ -50,15 +45,16 @@ shake = {'?': 'question',
 
 application = Flask(__name__)
 
-def update_emoji_list(force_update=False):
-    now = datetime.now()
-    global last_update, custom_emojis, default_emojis, emojis
-    if (now - last_update < update_frequency) and (not force_update): return
-    custom_emojis = list(sc.api_call('emoji.list')['emoji'].keys())
-    emojis = custom_emojis + default_emojis
-    last_update = now
+def get_emojis(init=False, add=None, rmeove=None):
+    # currently can't get this from an online list because slack doesn't return
+    #  a list of default emoji they support and provide no way of checking if
+    #  they support a particular emoji either
+    emojis = open('emoji_names.txt').read().splitlines()
+    # add all current emojis
+    emojis += list(sc.api_call('emoji.list')['emoji'].keys())
+    return emojis
 
-update_emoji_list()
+emojis = get_emojis()
 
 def truncate_message(message):
     message = message[:4000]
@@ -113,8 +109,6 @@ def handle_message(slack_event, message):
         reply = ', '.join(items)
         send_message(channel=channel, text=reply);
         return
-
-    update_emoji_list(message == '!emoji!')
 
     match = re.match(r'!emoji\s+(\d+)\s*', message)
     if match:
@@ -198,27 +192,32 @@ def choose(seq, limit=None):
         if not take: return item
     return ret
 
-def event_handler(event_type, slack_event):
+def event_handler(slack_event):
+    event = slack_event['event']
+    event_type = event['type']
     if event_type == 'reaction_added':
-        user_id = slack_event['event']['user']
-    elif event_type == 'message' and 'text' in slack_event['event']:
-        text = slack_event['event']['text']
-        handle_message(slack_event, text)
+        user_id = event['user']
+    elif event_type == 'message' and 'text' in event:
+        handle_message(slack_event, event['text'])
+    elif event_type == 'emoji_changed':
+        global emojis
+        if event['subtype'] == 'add':
+            emojis.append(event['name'])
+        elif event['subtype'] == 'remove':
+            for name in event['names']:
+                emojis.remove(name)
     else:
-        print(slack_event)
+        p(slack_event)
     return make_response("Ok", 200, )
 
 @application.route("/events", methods=["GET", "POST"])
 def hears():
     slack_event = json.loads(request.data)
+    p(slack_event)
     if "challenge" in slack_event:
         return make_response(slack_event["challenge"],
             200, {"content_type": "application/json"})
-    if "event" in slack_event:
-        event_type = slack_event["event"]["type"]
-        if __name__ != '__main__' or slack_event['event']['channel'] in test_channels:
-            return event_handler(event_type, slack_event)
-    return make_response("Ok", 200,)
+    return event_handler(slack_event)
 
 @application.route("/begin_auth", methods=["GET"])
 def pre_install():
