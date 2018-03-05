@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from flask import Flask, request, make_response, render_template
 from slackclient import SlackClient
 
-sc = SlackClient(oauth_token)
+sc = SlackClient(oauth_token_user)
 reddit = praw.Reddit(client_id=reddit_client_id, 
     client_secret=reddit_client_secret,
     user_agent='Slackchop')
@@ -50,10 +50,10 @@ shake = {'?': 'question',
 
 application = Flask(__name__)
 
-def update_emoji_list():
+def update_emoji_list(force_update=False):
     now = datetime.now()
     global last_update, custom_emojis, default_emojis, emojis
-    if now - last_update < update_frequency: return
+    if (now - last_update < update_frequency) and (not force_update): return
     custom_emojis = list(sc.api_call('emoji.list')['emoji'].keys())
     emojis = custom_emojis + default_emojis
     last_update = now
@@ -114,7 +114,7 @@ def handle_message(slack_event, message):
         send_message(channel=channel, text=reply);
         return
 
-    update_emoji_list()
+    update_emoji_list(message == '!emoji!')
 
     match = re.match(r'!emoji\s+(\d+)\s*', message)
     if match:
@@ -204,6 +204,8 @@ def event_handler(event_type, slack_event):
     elif event_type == 'message' and 'text' in slack_event['event']:
         text = slack_event['event']['text']
         handle_message(slack_event, text)
+    else:
+        print(slack_event)
     return make_response("Ok", 200, )
 
 @application.route("/events", methods=["GET", "POST"])
