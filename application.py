@@ -11,7 +11,8 @@ from datetime import datetime, timedelta
 from flask import Flask, request, make_response, render_template
 from slackclient import SlackClient
 
-sc = SlackClient(oauth_token_user)
+sc = SlackClient(oauth_token_bot)
+user = SlackClient(oauth_token_user)
 reddit = praw.Reddit(client_id=reddit_client_id, 
     client_secret=reddit_client_secret,
     user_agent='Slackchop')
@@ -51,7 +52,7 @@ def get_emojis(init=False, add=None, rmeove=None):
     #  they support a particular emoji either
     emojis = open('emoji_names.txt').read().splitlines()
     # add all current emojis
-    emojis += list(sc.api_call('emoji.list')['emoji'].keys())
+    emojis += list(user.api_call('emoji.list')['emoji'].keys())
     return emojis
 
 emojis = get_emojis()
